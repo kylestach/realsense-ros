@@ -19,6 +19,28 @@ constexpr auto realsense_ros_camera_version = REALSENSE_ROS_EMBEDDED_VERSION_STR
 
 PLUGINLIB_EXPORT_CLASS(realsense2_camera::RealSenseNodeFactory, nodelet::Nodelet)
 
+std::vector<uint8_t> bytes_from_raw_file(const std::string& filename)
+{
+    std::ifstream file(filename.c_str(), std::ios::binary);
+    if (!file.good())
+        throw std::runtime_error("Invalid binary file specified. Verify the source path and location permissions");
+
+    // Determine the file length
+    file.seekg(0, std::ios_base::end);
+    std::size_t size = file.tellg();
+    if (!size)
+        throw std::runtime_error("Invalid binary file -zero-size");
+    file.seekg(0, std::ios_base::beg);
+
+    // Create a vector to store the data
+    std::vector<uint8_t> v(size);
+
+    // Load the data
+    file.read((char*)&v[0], size);
+
+    return v;
+}
+
 std::string api_version_to_string(int version)
 {
 	std::ostringstream ss;
@@ -258,6 +280,7 @@ void RealSenseNodeFactory::initialize(const ros::WallTimerEvent &ignored)
 		privateNh.param("serial_no", _serial_no, std::string(""));
 		privateNh.param("usb_port_id", _usb_port_id, std::string(""));
 		privateNh.param("device_type", _device_type, std::string(""));
+		privateNh.param("map_file", _map_filename, std::string(""));
 
 		if (!toggle_sensor_srv)
 		{
@@ -275,6 +298,13 @@ void RealSenseNodeFactory::initialize(const ros::WallTimerEvent &ignored)
 				cfg.enable_device_from_file(rosbag_filename.c_str(), false);
 				cfg.enable_all_streams();
 				pipe->start(cfg); //File will be opened in read mode at this point
+
+                if (!_map_filename.empty())
+                {
+                    rs2::pose_sensor tm_sensor = cfg.resolve(*pipe).get_device().first<rs2::pose_sensor>();
+                    tm_sensor.import_localization_map(bytes_from_raw_file(_map_filename));
+                }
+
 				_device = pipe->get_active_profile().get_device();
 				_serial_no = _device.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
 			}
